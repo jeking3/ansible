@@ -786,6 +786,22 @@ class PyVmomi(object):
         self.current_vm_obj = None
         self.content = connect_to_api(self.module)
 
+    def collect(self, type, ids=None, names=None, properties=None):
+        """
+        Leverage the property collector to retrieve objects from
+        the server inventory.
+
+        Args:
+            type (str): The type of object, for example 'HostSystem'
+            ids (list): Specific object IDs to retrieve (MOIDs, like 'host-14').
+                This is a very efficient lookup.
+            properties (list): Specific properties to retrieve.  If None, then
+                all properties are retrieved.
+
+        Returns:
+            A dict where each top level key is 
+        """
+
     def is_vcenter(self):
         """
         Check if given hostname is vCenter or ESXi host
@@ -1162,3 +1178,10 @@ class PyVmomi(object):
             if dsc.name == datastore_cluster_name:
                 return dsc
         return None
+
+    def vimtype(self, typestr):
+        """
+        Given a managed object type string, return a class template.
+        """
+        return getattr(vim, typestr)
+
