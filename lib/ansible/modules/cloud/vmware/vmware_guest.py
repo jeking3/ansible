@@ -1790,8 +1790,18 @@ class PyVmomiHelper(PyVmomi):
             else:
                 diskspec.device.backing.diskMode = "persistent"
 
+            # increment index for next disk search
+            # (do this before possibly adding an existing vmdk so it gets incremented for the next disk)
+            disk_index += 1
+            # index 7 is reserved for the SCSI controller
+            if disk_index == 7:
+                disk_index += 1
+            elif disk_index > 63:
+                self.module.fail_json(msg, "too many disks specified")
+
             if 'filename' in expected_disk_spec and expected_disk_spec['filename'] is not None:
                 self.add_existing_vmdk(vm_obj, expected_disk_spec, diskspec, scsi_ctl)
+                self.change_detected = True
                 continue
             else:
                 diskspec.fileOperation = vim.vm.device.VirtualDeviceSpec.FileOperation.create
@@ -1811,12 +1821,6 @@ class PyVmomiHelper(PyVmomi):
                 # other disks defined
                 pass
 
-            # increment index for next disk search
-            disk_index += 1
-            # index 7 is reserved to SCSI controller
-            if disk_index == 7:
-                disk_index += 1
-
             kb = self.get_configured_disk_size(expected_disk_spec)
             # VMWare doesn't allow to reduce disk sizes
             if kb < diskspec.device.capacityInKB:
@@ -1827,7 +1831,6 @@ class PyVmomiHelper(PyVmomi):
             if kb != diskspec.device.capacityInKB or disk_modified:
                 diskspec.device.capacityInKB = kb
                 self.configspec.deviceChange.append(diskspec)
-
                 self.change_detected = True
 
     def select_host(self):
