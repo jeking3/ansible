@@ -1,6 +1,7 @@
 #!/usr/bin/python
 #
 # Copyright (c) 2017 Yuwei Zhou, <yuwzho@microsoft.com>
+# Copyright (c) 2018 James E. King III (@jeking3) <jking@apache.org>
 #
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
@@ -25,10 +26,12 @@ options:
         description:
             - Name of resource group.
         required: true
+        type: str
     name:
         description:
             - Name of the image.
         required: true
+        type: str
     source:
         description:
             - OS disk source from the same region.
@@ -36,20 +39,88 @@ options:
             - Each type of source except for blob URI can be given as resource id, name or a dict contains C(resource_group), C(name) and C(types).
             - If source type is blob URI, the source should be the full URI of the blob in string type.
             - If you specify the C(type) in a dict, acceptable value contains C(disks), C(virtual_machines) and C(snapshots).
+            - One of I(source) or I(os_disk) is required if I(state) is C(present).
+            - Use I(source) when making an image of a virtual machine.
+            - I(os_disk) provides more control over defining the operating system disk.
         type: raw
         required: true
+    os_disk:
+        description:
+            - Describe the operating system disk.  Accepts a dictionary containing:
+              - 'caching: [optional] define the caching requirements.  Possible values are:'
+                '  - C(None): no caching - this is the default for standard storage'
+                '  - C(ReadOnly): read-only caching - this is the default for premium storage'
+                '  - C(ReadWrite): read-write caching - unexpected power loss may result in loss of data'
+              - 'lun: [optional] if specified for any, must be specified for all, otherwise auto-assigned'
+              - 'managed_disk_type: [optional] storage account type, one of:'
+                '  - C(Standard_LRS): Standard HDD'
+                '  - C(Premium_LRS): Premium SSD'
+                '  - C(StandardSSD_LRS): Standard SSD'
+                '  - C(UltraSSD_LRS): NVMe'
+              - 'resource_group: [optional] if specified, name lookup for I(source_type) of C(disk)'
+                '                           or C(snapshot) will occur in this resource group'
+              - 'size: [optional] the new size of the disk in GB.'
+              - 'source: [required] identifier, the meaning of which depends on I(source_type)'
+                '                   instead of the image resource group'
+              - 'source_type: [required] the source type, which is one of:'
+                '  - C(blob): the I(source) is a blob_uri'
+                '  - C(disk): the I(source) is the name of a managed disk'
+                '  - C(resource): the I(source) is a resource identifier'
+                '  - C(snapshot): the I(source) is the name of a snapshot'
+            - One of I(source) or I(os_disk) is required if I(state) is C(present).
+        required: false
+        type: dict
+        version_added: '2.8'
     data_disk_sources:
         description:
-            - List of data disk sources, including unmanaged blob URI, managed disk id or name, or snapshot id or name.
+            - List of data disk sources, including unmanaged blob uri, managed disk id or name,
+              or snapshot id or name.  This input type is maintained for backwards compatibility
+              but it does not offer complete control.  Use data_disks instead.
+        required: false
         type: list
+        version_deprecated: '2.8'
+    data_disks:
+        description:
+            - List of data disk definition dictionaries, each containing:
+              - 'caching: [optional] define the caching requirements.  Possible values are:'
+                '  - C(None): no caching - this is the default for standard storage'
+                '  - C(ReadOnly): read-only caching - this is the default for premium storage'
+                '  - C(ReadWrite): read-write caching - unexpected power loss may result in loss of data'
+              - 'lun: [optional] if specified for any, must be specified for all, otherwise auto-assigned'
+              - 'managed_disk_type: [optional] storage account type, one of:'
+                '  - C(Standard_LRS): Standard HDD'
+                '  - C(Premium_LRS): Premium SSD'
+                '  - C(StandardSSD_LRS): Standard SSD'
+                '  - C(UltraSSD_LRS): NVMe'
+              - 'resource_group: [optional] if specified, name lookup for I(source_type) of C(disk)'
+                '                           or C(snapshot) will occur in this resource group'
+              - 'size: [optional] the new size of the disk in GB.'
+              - 'source: [required] identifier, the meaning of which depends on I(source_type)'
+                '                   instead of the image resource group'
+              - 'source_type: [required] the source type, which is one of:'
+                '  - C(blob): the I(source) is a blob_uri'
+                '  - C(disk): the I(source) is the name of a managed disk'
+                '  - C(resource): the I(source) is a resource identifier'
+                '  - C(snapshot): the I(source) is the name of a snapshot'
+        type: list
+        version_added: '2.8'
     location:
         description:
             - Location of the image. Derived from I(resource_group) if not specified.
+        type: str
+    os_state:
+        description: The OS state of the image.  If not specified, Azure will use a default value.
+        choices:
+            - Generalized
+            - Specialized
+        type: str
+        version_added: '2.8'
     os_type:
         description: The OS type of image.
         choices:
             - Windows
             - Linux
+        type: str
     state:
         description:
             - Assert the state of the image. Use C(present) to create or update a image and C(absent) to delete an image.
@@ -57,6 +128,7 @@ options:
         choices:
             - absent
             - present
+        type: str
 
 extends_documentation_fragment:
     - azure
@@ -64,7 +136,7 @@ extends_documentation_fragment:
 
 author:
     - "Yuwei Zhou (@yuwzho)"
-
+    - "James E. King III (@jeking3)"
 '''
 
 EXAMPLES = '''
@@ -96,6 +168,31 @@ EXAMPLES = '''
         - datadisk001
         - datadisk002
     os_type: Linux
+
+- name: New data disk and os disk sources example
+  azure_rm_image:
+    name: my-image
+    resource_group: Test
+    os_disk:
+      caching: ReadOnly
+      managed_disk_type: UltraSSD_LRS
+      source: managed-disk-name
+      source_type: disk
+    os_state: Generalized
+    os_type: Linux
+    data_disks:
+      - caching: ReadOnly
+        managed_disk_type: Premium_LRS
+        source: /subscriptions/XXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXX/resourceGroups/Testing/providers/Microsoft.Compute/disks/disk001
+        source_type: resource
+      - resource_group: my-alternate-resource-group
+        source_id: my-snapshot-name
+        source_type: snapshot
+      - caching: ReadWrite
+        managed_disk_type: StandardSSD_LRS
+        size: 64
+        source: empty-managed-disk-name
+        source_type: disk
 
 - name: Delete an image
   azure_rm_image:
@@ -133,7 +230,10 @@ class AzureRMImage(AzureRMModuleBase):
             state=dict(type='str', default='present', choices=['present', 'absent']),
             location=dict(type='str'),
             source=dict(type='raw'),
+            os_disk=dict(type='dict'),
             data_disk_sources=dict(type='list', default=[]),
+            data_disks=dict(type='list'),
+            os_state=dict(type='str', choices=['Generalized', 'Specialized']),
             os_type=dict(type='str', choices=['Windows', 'Linux'])
         )
 
@@ -142,22 +242,29 @@ class AzureRMImage(AzureRMModuleBase):
             id=None
         )
 
-        required_if = [
-            ('state', 'present', ['source'])
-        ]
-
         self.resource_group = None
         self.name = None
         self.state = None
         self.location = None
         self.source = None
+        self.os_disk = None
         self.data_disk_sources = None
+        self.data_disks = None
+        self.os_state = None
         self.os_type = None
 
-        super(AzureRMImage, self).__init__(self.module_arg_spec, supports_check_mode=True, required_if=required_if)
+        super(AzureRMImage, self).__init__(self.module_arg_spec, supports_check_mode=True)
+
+        if self.state == 'present' and not self.source and not self.os_disk:
+            self.fail('one of source or os_disk is required')
+
+        if self.source and self.os_disk:
+            self.fail('cannot specify both source and os_disk')
+
+        if self.data_disk_sources and self.data_disks:
+            self.module.fail_json(msg="cannot specify both data_disk_sources and data_disks")
 
     def exec_module(self, **kwargs):
-
         for key in list(self.module_arg_spec.keys()) + ['tags']:
             setattr(self, key, kwargs[key])
 
@@ -195,8 +302,8 @@ class AzureRMImage(AzureRMModuleBase):
                 # create from virtual machine
                 vm = self.get_source_vm()
                 if vm:
-                    if self.data_disk_sources:
-                        self.fail('data_disk_sources is not allowed when capturing image from vm')
+                    if self.data_disk_sources or self.data_disks:
+                        self.fail('data_disk_sources/data_disks is not allowed when capturing image from vm')
                     image_instance = self.compute_models.Image(location=self.location,
                                                                source_virtual_machine=self.compute_models.SubResource(id=vm.id),
                                                                tags=self.tags)
@@ -222,7 +329,67 @@ class AzureRMImage(AzureRMModuleBase):
 
         return self.results
 
-    def resolve_storage_source(self, source):
+    @property
+    def os_state_enum(self):
+        states = {
+            'Generalized': self.compute_models.OperatingSystemStateTypes.generalized,
+            'Specialized': self.compute_models.OperatingSystemStateTypes.specialized
+        }
+        return states[self.os_state]
+
+    def resolve_storage_source_ex(self, source, osdisk=None, autolun=None):
+        blob_uri = None
+        caching = source.get('caching', None)
+        disk_size_gb = source.get('size', None)
+        lun = source.get('lun', autolun)
+        managed_disk = None
+        snapshot = None
+        storage_account_type = source.get('managed_disk_type', None)
+        if source['source_type'] == 'blob':
+            blob_uri = source['source']
+        elif source['source_type'] == 'disk':
+            disk = self.get_disk(source['source'], resource_group=source.get('resource_group', self.resource_group))
+            if not disk:
+                self.module.fail_json(msg="managed disk '{0}' not found".format(source['source']))
+            managed_disk = disk.id
+        elif source['source_type'] == 'resource':
+            tokenize = parse_resource_id(source['source'])
+            if tokenize.get('type') == 'disks':
+                managed_disk = source['source']
+            elif tokenize.get('type') == 'snapshots':
+                snapshot = source['source']
+            else:
+                self.module.fail_json(msg="resource descriptor '{0}' is invalid".format(source['source']))
+        elif source['source_type'] == 'snapshot':
+            snap = self.get_snapshot(source['source'], resource_group=source.get('resource_group', self.resource_group))
+            if not snap:
+                self.module.fail_json(msg="managed disk '{0}' not found".format(source['source']))
+            snapshot = snap.id
+        else:
+            self.module_fail_json(msg="unknown source_type '{0}'".format(source['source_type']))
+
+        managed_disk_resource = self.compute_models.SubResource(id=managed_disk) if managed_disk else None
+        snapshot_resource = self.compute_models.SubResource(id=snapshot) if snapshot else None
+        if osdisk:
+            return self.compute_models.ImageOSDisk(blob_uri=blob_uri,
+                                                   caching=caching,
+                                                   disk_size_gb=disk_size_gb,
+                                                   managed_disk=managed_disk_resource,
+                                                   os_state=self.os_state,
+                                                   os_type=self.os_type,
+                                                   snapshot=snapshot_resource,
+                                                   storage_account_type=storage_account_type)
+        else:
+            return self.compute_models.ImageDataDisk(blob_uri=blob_uri,
+                                                     caching=caching,
+                                                     disk_size_gb=disk_size_gb,
+                                                     lun=lun,
+                                                     managed_disk=managed_disk_resource,
+                                                     snapshot=snapshot_resource,
+                                                     storage_account_type=storage_account_type)
+
+    def resolve_storage_source_legacy(self, source):
+        ''' Resolve the storage source when specified as a plain string, for backwards compatibility '''
         blob_uri = None
         disk = None
         snapshot = None
@@ -271,28 +438,43 @@ class AzureRMImage(AzureRMModuleBase):
             disk = disk_instance.id
         return (blob_uri, disk, snapshot)
 
-    def create_os_disk(self):
-        blob_uri, disk, snapshot = self.resolve_storage_source(self.source)
-        snapshot_resource = self.compute_models.SubResource(id=snapshot) if snapshot else None
-        managed_disk = self.compute_models.SubResource(id=disk) if disk else None
-        return self.compute_models.ImageOSDisk(os_type=self.os_type,
-                                               os_state=self.compute_models.OperatingSystemStateTypes.generalized,
-                                               snapshot=snapshot_resource,
-                                               managed_disk=managed_disk,
-                                               blob_uri=blob_uri)
+    def resolve_storage_source(self, source, osdisk=None, autolun=None):
+        '''
+        Resolve a storage source into a disk description.
 
-    def create_data_disk(self, lun, source):
-        blob_uri, disk, snapshot = self.resolve_storage_source(source)
-        if blob_uri or disk or snapshot:
+        Inputs:
+          - source: either a string (legacy implementation) or a dict (new implementation)
+          - osdisk: boolean indicating if the disk is an OS disk or a Data disk
+
+        Returns:
+          - An ImageOSDisk or an ImageDataDisk
+        '''
+        if (isinstance(source, dict)):
+            return self.resolve_storage_source_ex(source, osdisk=osdisk, autolun=autolun)
+        else:
+            blob_uri, disk, snapshot = self.resolve_storage_source_legacy(source)
             snapshot_resource = self.compute_models.SubResource(id=snapshot) if snapshot else None
             managed_disk = self.compute_models.SubResource(id=disk) if disk else None
-            return self.compute_models.ImageDataDisk(lun=lun,
-                                                     blob_uri=blob_uri,
-                                                     snapshot=snapshot_resource,
-                                                     managed_disk=managed_disk)
+            if osdisk:
+                return self.compute_models.ImageOSDisk(os_type=self.os_type,
+                                                       os_state=self.os_state_enum,
+                                                       snapshot=snapshot_resource,
+                                                       managed_disk=managed_disk,
+                                                       blob_uri=blob_uri)
+            else:
+                return self.compute_models.ImageDataDisk(lun=autolun,
+                                                         blob_uri=blob_uri,
+                                                         snapshot=snapshot_resource,
+                                                         managed_disk=managed_disk)
+
+    def create_os_disk(self):
+        return self.resolve_storage_source(self.source or self.os_disk, osdisk=True)
+
+    def create_data_disk(self, lun, source):
+        return self.resolve_storage_source(source, osdisk=False, autolun=lun)
 
     def create_data_disks(self):
-        return list(filter(None, [self.create_data_disk(lun, source) for lun, source in enumerate(self.data_disk_sources)]))
+        return list(filter(None, [self.create_data_disk(lun, source) for lun, source in enumerate(self.data_disk_sources or self.data_disks)]))
 
     def get_source_vm(self):
         # self.resource can be a vm (id/name/dict), or not a vm. return the vm iff it is an existing vm.
@@ -313,12 +495,6 @@ class AzureRMImage(AzureRMModuleBase):
         else:
             self.fail("Unsupported type of source parameter, please give string or dictionary")
         return self.get_vm(resource['resource_group'], resource['name']) if resource['type'] == 'virtualMachines' else None
-
-    def get_snapshot(self, resource_group, snapshot_name):
-        return self._get_resource(self.compute_client.snapshots.get, resource_group, snapshot_name)
-
-    def get_disk(self, resource_group, disk_name):
-        return self._get_resource(self.compute_client.disks.get, resource_group, disk_name)
 
     def get_vm(self, resource_group, vm_name):
         return self._get_resource(self.compute_client.virtual_machines.get, resource_group, vm_name, 'instanceview')
